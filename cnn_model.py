@@ -1,4 +1,5 @@
 # coding: utf-8
+from functools import partial
 
 import tensorflow as tf
 
@@ -24,6 +25,8 @@ class TCNNConfig(object):
     print_per_batch = 100  # 每多少轮输出一次结果
     save_per_batch = 10  # 每多少轮存入tensorboard
 
+    scale = 0.01
+
 
 class TextCNN(object):
     """文本分类，CNN模型"""
@@ -40,6 +43,11 @@ class TextCNN(object):
 
     def cnn(self):
         """CNN模型"""
+        my_dense_layer = partial(
+            tf.layers.dense, activation=tf.nn.relu,
+            # 在这里传入了L2正则化函数，并在函数中传入正则化系数。
+            kernel_regularizer=tf.contrib.layers.l2_regularizer(self.config.scale)
+        )
         # 词向量映射
         with tf.device('/cpu:0'):
             embedding = tf.get_variable('embedding', [self.config.vocab_size, self.config.embedding_dim])
@@ -52,10 +60,11 @@ class TextCNN(object):
             gmp = tf.reduce_max(conv, reduction_indices=[1], name='gmp')
 
         with tf.name_scope("score"):
-            # 全连接层，后面接dropout以及relu激活
-            fc = tf.layers.dense(gmp, self.config.hidden_dim, name='fc1')
-            fc = tf.contrib.layers.dropout(fc, self.keep_prob)
-            fc = tf.nn.relu(fc)
+            # 全连接层
+            fc = my_dense_layer(gmp, self.config.hidden_dim, name='fc1')
+            # fc = tf.layers.dense(gmp, self.config.hidden_dim, name='fc1')
+            # fc = tf.contrib.layers.dropout(fc, self.keep_prob)
+            # fc = tf.nn.relu(fc)
 
             # 分类器
             self.logits = tf.layers.dense(fc, self.config.num_classes, name='fc2')
@@ -64,7 +73,9 @@ class TextCNN(object):
         with tf.name_scope("optimize"):
             # 损失函数，交叉熵
             cross_entropy = tf.nn.softmax_cross_entropy_with_logits(logits=self.logits, labels=self.input_y)
-            self.loss = tf.reduce_mean(cross_entropy)
+            reg_losses = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
+            self.loss = tf.add_n([tf.reduce_mean(cross_entropy)] + reg_losses)
+            # self.loss = tf.reduce_mean(cross_entropy)
             # 优化器
             self.optim = tf.train.AdamOptimizer(learning_rate=self.config.learning_rate).minimize(self.loss)
 

@@ -1,4 +1,6 @@
 .DS_Store
+pb/
+tflite/
 data/cnews
 data/thucnews
 __pycache__
